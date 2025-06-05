@@ -1,0 +1,6 @@
+@ollama_report_webapi_HostAddress = http://localhost:5213
+
+GET {{ollama_report_webapi_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

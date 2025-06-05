@@ -1,0 +1,10 @@
+
+.vs/
+
+ollama-report-webapi/.config/
+
+ollama-report-webapi/bin/
+
+ollama-report-webapi/obj/
+
+ollama-report-webapi/Properties/
