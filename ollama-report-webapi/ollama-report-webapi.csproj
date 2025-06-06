@@ -14,10 +14,6 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<Folder Include="wwwroot\**" />
-	</ItemGroup>
-
-	<ItemGroup>
 		<EmbeddedResource Include="wwwroot\**" />
 	</ItemGroup>
 

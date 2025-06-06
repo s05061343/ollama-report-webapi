@@ -30,8 +30,8 @@ app.MapControllers();
 #region FileServer
 var fsOptions = new FileServerOptions
 {
-    RequestPath = "",
-    FileProvider = new ManifestEmbeddedFileProvider(typeof(Program).Assembly, "wwwroot"),
+    RequestPath = "", // ®Ú¥Ø¿ý
+    FileProvider = new PhysicalFileProvider(Path.Combine(Directory.GetCurrentDirectory(), "wwwroot")),
 };
 
 fsOptions.StaticFileOptions.OnPrepareResponse = (context) =>
