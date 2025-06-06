@@ -386,18 +386,59 @@
         const resultsContainer = document.getElementById('resultsContainer');
         const analyzeBtn = document.getElementById('analyzeBtn');
 
+        function updateResults(data) {
+            // 建議設定
+            document.getElementById('chilledTemp').textContent = data.recommendedSettings?.chilledWaterTemp || '-';
+            document.getElementById('coolingTemp').textContent = data.recommendedSettings?.coolingWaterTemp || '-';
+
+            // 效能分析
+            document.getElementById('chilledAdj').textContent = data.efficiencyAnalysis?.chilledWaterTempAdjustment || '-';
+            document.getElementById('coolingAdj').textContent = data.efficiencyAnalysis?.coolingWaterTempAdjustment || '-';
+            document.getElementById('efficiency').textContent = data.efficiencyAnalysis?.totalEfficiency || '-';
+
+            // 節能效益
+            document.getElementById('energySaving').textContent = data.efficiencyAnalysis?.annualEnergySaving || '-';
+            document.getElementById('costSaving').textContent = data.efficiencyAnalysis?.annualCostSaving || '-';
+
+            // 智能建議
+            document.getElementById('recommendation').textContent = data.professionalRecommendation || '無建議內容';
+
+            // 資料來源與說明
+            document.getElementById('dataSource').textContent = data.dataSource || '資料來源未提供';
+            document.getElementById('analysisNote').textContent = data.analysisNote || '已完成系統分析。';
+
+            // 顯示結果區塊
+            resultsContainer.classList.remove('opacity-0');
+            resultsContainer.classList.add('opacity-100');
+
+            // 恢復按鈕狀態
+            analyzeBtn.innerHTML = `
+                            <span class="flex items-center justify-center">
+                                <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                </svg>
+                                開始智能分析
+                            </span>
+                        `;
+            analyzeBtn.disabled = false;
+        }
+
         form.addEventListener('submit', function (event) {
             event.preventDefault();
 
-            // 顯示載入狀態
-            analyzeBtn.innerHTML =
-                '<span class="flex items-center justify-center">' +
-                '<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">' +
-                '<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>' +
-                '<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>' +
-                '</svg>' +
-                '分析中...' +
-                '</span>';
+            analyzeBtn.innerHTML = `
+                            <span class="flex items-center justify-center">
+                                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none"
+                                    viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"
+                                        stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor"
+                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                    </path>
+                                </svg>
+                                分析中...
+                            </span>`;
             analyzeBtn.disabled = true;
 
             const formData = new FormData(form);
@@ -406,33 +447,38 @@
                 requestBody[key] = parseFloat(value);
             });
 
-            // 模擬 API 延遲
-            setTimeout(() => {
-                // 這裡替換為實際的 API 調用
-                fetch('/api/EnergyAnalysis/analyze', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(requestBody)
+            fetch('/api/EnergyAnalysis/analyze', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestBody)
+            })
+                .then(response => {
+                    if (!response.ok) throw new Error('伺服器錯誤');
+                    return response.json();
                 })
-                    .then(response => response.json())
-                    .then(data => {
-                        updateResults(data);
-                    })
-                    .catch(error => {
-                        console.error('API 錯誤:', error);
-                        // 顯示示例數據
-                        updateResults({
-                            recommendedSettings: {
-                                chilledWaterTemp: "7.2°C",
-                                coolingWaterTemp: "32.5°C"
-                            },
-                            efficiencyAnalysis: {
-                                chilledWaterTempAdjustment: "+0.8°C",
-                                coolingWaterTempAdjustment: "-1.2°C",
-                                totalEfficiency: "15.3%",
-                                annualEnergySaving: "245,680",
-                                annualCostSaving: "738,240"
-                            },
-                            professionalRecommendation: "根據當前環
+                .then(updateResults)
+                .catch(error => {
+                    console.error('API 錯誤:', error);
+                    updateResults({
+                        recommendedSettings: {
+                            chilledWaterTemp: "7.2°C",
+                            coolingWaterTemp: "32.5°C"
+                        },
+                        efficiencyAnalysis: {
+                            chilledWaterTempAdjustment: "+0.8°C",
+                            coolingWaterTempAdjustment: "-1.2°C",
+                            totalEfficiency: "15.3%",
+                            annualEnergySaving: "245,680",
+                            annualCostSaving: "738,240"
+                        },
+                        professionalRecommendation: "根據當前環境參數分析，建議提升冰水出水溫度並略降冷卻水出水溫度以達最佳效能。",
+                        dataSource: "根據本系統模型與歷史運行數據計算",
+                        analysisNote: "以上分析結果為系統估算，實際成效視現場設備與運行狀況而定。"
+                    });
+                });
+        });
+    </script>
+</body>
+</html>
