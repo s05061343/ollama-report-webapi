@@ -1,0 +1,10 @@
+﻿[*.cs]
+
+# SKEXP0010: 類型僅供評估之用，可能會在未來更新中變更或移除。抑制此診斷以繼續。
+dotnet_diagnostic.SKEXP0010.severity = warning
+
+# SKEXP0070: 類型僅供評估之用，可能會在未來更新中變更或移除。抑制此診斷以繼續。
+dotnet_diagnostic.SKEXP0070.severity = warning
+
+# CS0618: 類型或成員已經過時
+dotnet_diagnostic.CS0618.severity = warning
