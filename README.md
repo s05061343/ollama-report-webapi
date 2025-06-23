@@ -1,353 +1,668 @@
-# Ollama Report Web API
+# Semantic Kernel .NET 8 文件向量化 Web API 完整指南
 
-一個基於 Ollama 的報告生成 Web API 服務
+## 概述
 
-## 專案概述
+本指南展示如何使用 Microsoft Semantic Kernel 在 .NET 8 Web API 中實現文件向量化（embedding）功能，包含文件上傳、向量生成、語義搜尋和 RAG（檢索增強生成）問答系統。
 
-本專案提供一個 RESTful Web API，用於與 Ollama 本地大型語言模型進行互動，專門針對報告生成和分析功能進行優化。
+## 主要功能
 
-## 功能特色
+- 📄 **文件上傳與處理** - 支援文件上傳並自動分割成文本塊
+- 🔢 **向量生成** - 使用 OpenAI Embedding API 將文本轉換為向量
+- 🔍 **語義搜尋** - 基於餘弦相似度的智能搜尋
+- 🤖 **RAG 問答** - 結合檢索和生成的文件問答功能
+- 💾 **向量存儲** - 內建記憶體存儲（可擴展至其他向量數據庫）
 
-- 🚀 與 Ollama 本地模型無縫整合
-- 📊 自動化報告生成
-- 🔧 RESTful API 設計
-- 📝 多種報告格式支援
-- ⚡ 高效能處理
-- 🛡️ 安全性保障
+## 系統架構
 
-## 系統需求
+```
+用戶請求 → Web API → Semantic Kernel → OpenAI API
+                ↓
+          向量存儲 ← 文本分割 ← 文件處理
+```
 
-- Node.js >= 16.0.0
-- Ollama 已安裝並運行
-- 至少 8GB RAM
-- 支援的作業系統：Linux、macOS、Windows
+## 環境設置
 
-## 安裝指南
-
-### 1. 克隆專案
+### 1. 建立專案
 
 ```bash
-git clone https://github.com/s05061343/ollama-report-webapi.git
-cd ollama-report-webapi
+dotnet new webapi -n SemanticKernelVectorAPI
+cd SemanticKernelVectorAPI
 ```
 
-### 2. 安裝依賴
+### 2. 安裝 NuGet 套件
 
 ```bash
-npm install
+dotnet add package Microsoft.SemanticKernel
+dotnet add package Microsoft.SemanticKernel.Connectors.OpenAI
 ```
 
-### 3. 環境配置
+### 3. 配置 appsettings.json
 
-建立 `.env` 檔案：
-
-```env
-# 伺服器配置
-PORT=3000
-HOST=localhost
-
-# Ollama 配置
-OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=llama2
-
-# 資料庫配置（如果適用）
-DATABASE_URL=your_database_url
-
-# API 金鑰配置
-API_KEY=your_secret_api_key
-```
-
-### 4. 啟動服務
-
-```bash
-# 開發模式
-npm run dev
-
-# 生產模式
-npm start
-```
-
-## API 文檔
-
-### 基本資訊
-
-- **基礎 URL**: `http://localhost:3000/api`
-- **認證方式**: API Key (Header: `X-API-Key`)
-- **內容類型**: `application/json`
-
-### 端點說明
-
-#### 1. 健康檢查
-
-```http
-GET /health
-```
-
-**回應範例：**
 ```json
 {
-  "status": "ok",
-  "timestamp": "2025-06-06T10:00:00Z",
-  "ollama_status": "connected"
+  "OpenAI": {
+    "ApiKey": "your-openai-api-key-here"
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "AllowedHosts": "*"
 }
 ```
 
-#### 2. 生成報告
+## 核心程式碼
 
-```http
-POST /reports/generate
+### Program.cs 主要配置
+
+```csharp
+using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.ChatCompletion;
+using Microsoft.SemanticKernel.Embeddings;
+using Microsoft.SemanticKernel.Connectors.OpenAI;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// 基本服務配置
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+builder.Services.AddCors();
+
+// Semantic Kernel 配置
+builder.Services.AddSingleton<Kernel>(serviceProvider =>
+{
+    var configuration = serviceProvider.GetService<IConfiguration>();
+    var kernelBuilder = Kernel.CreateBuilder();
+    
+    // 添加 OpenAI 服務
+    kernelBuilder.AddOpenAIChatCompletion(
+        modelId: "gpt-3.5-turbo",
+        apiKey: configuration["OpenAI:ApiKey"]
+    );
+    
+    kernelBuilder.AddOpenAITextEmbeddingGeneration(
+        modelId: "text-embedding-ada-002",
+        apiKey: configuration["OpenAI:ApiKey"]
+    );
+    
+    return kernelBuilder.Build();
+});
+
+// 註冊自定義服務
+builder.Services.AddScoped<IEmbeddingService, EmbeddingService>();
+builder.Services.AddScoped<IDocumentService, DocumentService>();
+builder.Services.AddSingleton<IVectorStore, InMemoryVectorStore>();
 ```
 
-**請求參數：**
-```json
+### 資料模型定義
+
+```csharp
+// 文件塊模型
+public class DocumentChunk
 {
-  "title": "報告標題",
-  "content": "報告內容或資料",
-  "format": "markdown|html|pdf",
-  "model": "llama2",
-  "parameters": {
-    "temperature": 0.7,
-    "max_tokens": 2000
-  }
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string DocumentId { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+    public string Content { get; set; } = string.Empty;
+    public int ChunkIndex { get; set; }
+    public float[]? Embedding { get; set; }
+    public float SimilarityScore { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
+
+// API 請求/回應模型
+public record EmbeddingRequest(string Text);
+public record EmbeddingResponse(string Text, float[] Embedding, int Dimension);
+public record SimilaritySearchRequest(string Query, int? TopK = 5);
+public record RAGChatRequest(string Question, int? TopK = 3);
+public record DocumentUploadResult(string DocumentId, string FileName, int ChunkCount, string Status);
 ```
 
-**回應範例：**
-```json
+### 向量服務實作
+
+```csharp
+public interface IEmbeddingService
 {
-  "success": true,
-  "report_id": "report_123456",
-  "generated_report": "# 報告標題\n\n生成的報告內容...",
-  "metadata": {
-    "model_used": "llama2",
-    "tokens_used": 1250,
-    "generation_time": "2.5s"
-  }
+    Task<float[]> GenerateEmbeddingAsync(string text);
+    Task<List<float[]>> GenerateEmbeddingsAsync(List<string> texts);
+    Task<float> CalculateSimilarityAsync(float[] embedding1, float[] embedding2);
 }
-```
 
-#### 3. 獲取報告狀態
-
-```http
-GET /reports/{report_id}
-```
-
-#### 4. 列出可用模型
-
-```http
-GET /models
-```
-
-**回應範例：**
-```json
+public class EmbeddingService : IEmbeddingService
 {
-  "models": [
+    private readonly ITextEmbeddingGenerationService _embeddingService;
+
+    public EmbeddingService(Kernel kernel)
     {
-      "name": "llama2",
-      "size": "7B",
-      "status": "available"
-    },
+        _embeddingService = kernel.GetRequiredService<ITextEmbeddingGenerationService>();
+    }
+
+    public async Task<float[]> GenerateEmbeddingAsync(string text)
     {
-      "name": "codellama",
-      "size": "13B",
-      "status": "available"
+        var embedding = await _embeddingService.GenerateEmbeddingAsync(text);
+        return embedding.ToArray();
+    }
+
+    public Task<float> CalculateSimilarityAsync(float[] embedding1, float[] embedding2)
+    {
+        // 餘弦相似度計算
+        var dotProduct = embedding1.Zip(embedding2, (a, b) => a * b).Sum();
+        var magnitude1 = Math.Sqrt(embedding1.Sum(x => x * x));
+        var magnitude2 = Math.Sqrt(embedding2.Sum(x => x * x));
+        
+        var similarity = (float)(dotProduct / (magnitude1 * magnitude2));
+        return Task.FromResult(similarity);
+    }
+}
+```
+
+### 向量存儲實作
+
+```csharp
+public interface IVectorStore
+{
+    Task StoreDocumentChunksAsync(List<DocumentChunk> chunks);
+    Task<List<DocumentChunk>> SearchSimilarAsync(string query, int topK);
+    Task<List<DocumentChunk>> GetAllDocumentsAsync();
+    Task DeleteDocumentAsync(string documentId);
+}
+
+public class InMemoryVectorStore : IVectorStore
+{
+    private readonly List<DocumentChunk> _documents = new();
+    private readonly IEmbeddingService _embeddingService;
+
+    public async Task<List<DocumentChunk>> SearchSimilarAsync(string query, int topK)
+    {
+        var queryEmbedding = await _embeddingService.GenerateEmbeddingAsync(query);
+        var results = new List<DocumentChunk>();
+        
+        foreach (var doc in _documents.Where(d => d.Embedding != null))
+        {
+            var similarity = await _embeddingService.CalculateSimilarityAsync(
+                queryEmbedding, doc.Embedding!);
+            doc.SimilarityScore = similarity;
+            results.Add(doc);
+        }
+        
+        return results
+            .OrderByDescending(x => x.SimilarityScore)
+            .Take(topK)
+            .ToList();
+    }
+}
+```
+
+### 文件處理服務
+
+```csharp
+public class DocumentService : IDocumentService
+{
+    public async Task<DocumentUploadResult> ProcessDocumentAsync(IFormFile file)
+    {
+        // 讀取文件內容
+        using var reader = new StreamReader(file.OpenReadStream(), Encoding.UTF8);
+        var content = await reader.ReadToEndAsync();
+        
+        // 文件分割（1000字符每塊，200字符重疊）
+        var chunks = SplitTextIntoChunks(content, 1000, 200);
+        
+        var documentId = Guid.NewGuid().ToString();
+        var documentChunks = new List<DocumentChunk>();
+        
+        // 為每個塊生成向量
+        for (int i = 0; i < chunks.Count; i++)
+        {
+            var embedding = await _embeddingService.GenerateEmbeddingAsync(chunks[i]);
+            documentChunks.Add(new DocumentChunk
+            {
+                DocumentId = documentId,
+                FileName = file.FileName,
+                Content = chunks[i],
+                ChunkIndex = i,
+                Embedding = embedding
+            });
+        }
+        
+        await _vectorStore.StoreDocumentChunksAsync(documentChunks);
+        
+        return new DocumentUploadResult(documentId, file.FileName, chunks.Count, "成功處理");
+    }
+
+    private List<string> SplitTextIntoChunks(string text, int chunkSize, int overlap)
+    {
+        var chunks = new List<string>();
+        var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        
+        for (int i = 0; i < words.Length; i += chunkSize - overlap)
+        {
+            var chunk = string.Join(" ", words.Skip(i).Take(chunkSize));
+            if (!string.IsNullOrWhiteSpace(chunk))
+                chunks.Add(chunk);
+            
+            if (i + chunkSize >= words.Length) break;
+        }
+        
+        return chunks;
+    }
+}
+```
+
+## API 端點說明
+
+### 1. 文件上傳與向量化
+
+**端點**: `POST /api/documents/upload`
+
+**功能**: 上傳文件並自動轉換為向量
+
+**請求**: Multipart form data 包含文件
+
+**回應**:
+```json
+{
+  "documentId": "guid",
+  "fileName": "document.txt",
+  "chunkCount": 15,
+  "status": "成功處理"
+}
+```
+
+### 2. 文本向量生成
+
+**端點**: `POST /api/embeddings/generate`
+
+**功能**: 將文本轉換為向量
+
+**請求**:
+```json
+{
+  "text": "要轉換的文本內容"
+}
+```
+
+**回應**:
+```json
+{
+  "text": "要轉換的文本內容",
+  "embedding": [0.1, 0.2, ...],
+  "dimension": 1536
+}
+```
+
+### 3. 語義相似度搜尋
+
+**端點**: `POST /api/search/similarity`
+
+**功能**: 搜尋與查詢相似的文件片段
+
+**請求**:
+```json
+{
+  "query": "搜尋關鍵詞",
+  "topK": 5
+}
+```
+
+**回應**:
+```json
+{
+  "results": [
+    {
+      "id": "chunk-id",
+      "content": "相關文本內容",
+      "fileName": "source.txt",
+      "similarityScore": 0.95
     }
   ]
 }
 ```
 
+### 4. RAG 智能問答
+
+**端點**: `POST /api/chat/rag`
+
+**功能**: 基於上傳的文件回答問題
+
+**請求**:
+```json
+{
+  "question": "請問文件中提到什麼重要概念？",
+  "topK": 3
+}
+```
+
+**回應**:
+```json
+{
+  "answer": "根據文件內容，主要提到了以下重要概念..."
+}
+```
+
 ## 使用範例
 
-### JavaScript/Node.js
-
-```javascript
-const axios = require('axios');
-
-async function generateReport() {
-  try {
-    const response = await axios.post('http://localhost:3000/api/reports/generate', {
-      title: '月度銷售報告',
-      content: '2024年12月銷售數據分析',
-      format: 'markdown',
-      model: 'llama2'
-    }, {
-      headers: {
-        'X-API-Key': 'your_api_key',
-        'Content-Type': 'application/json'
-      }
-    });
-    
-    console.log('報告生成成功：', response.data);
-  } catch (error) {
-    console.error('錯誤：', error.response.data);
-  }
-}
-
-generateReport();
-```
-
-### Python
-
-```python
-import requests
-import json
-
-def generate_report():
-    url = "http://localhost:3000/api/reports/generate"
-    headers = {
-        "X-API-Key": "your_api_key",
-        "Content-Type": "application/json"
-    }
-    
-    data = {
-        "title": "月度銷售報告",
-        "content": "2024年12月銷售數據分析",
-        "format": "markdown",
-        "model": "llama2"
-    }
-    
-    response = requests.post(url, headers=headers, data=json.dumps(data))
-    
-    if response.status_code == 200:
-        print("報告生成成功：", response.json())
-    else:
-        print("錯誤：", response.json())
-
-generate_report()
-```
-
-### cURL
+### 1. 上傳文件
 
 ```bash
-curl -X POST http://localhost:3000/api/reports/generate \
-  -H "X-API-Key: your_api_key" \
+curl -X POST "https://localhost:7000/api/documents/upload" \
+  -H "Content-Type: multipart/form-data" \
+  -F "file=@document.txt"
+```
+
+### 2. 生成文本向量
+
+```bash
+curl -X POST "https://localhost:7000/api/embeddings/generate" \
   -H "Content-Type: application/json" \
-  -d '{
-    "title": "月度銷售報告",
-    "content": "2024年12月銷售數據分析",
-    "format": "markdown",
-    "model": "llama2"
-  }'
+  -d '{"text": "人工智慧是未來科技發展的重要方向"}'
 ```
 
-## 設定說明
-
-### Ollama 模型管理
-
-確保您已安裝所需的 Ollama 模型：
+### 3. 語義搜尋
 
 ```bash
-# 安裝模型
-ollama pull llama2
-ollama pull codellama
-
-# 查看已安裝的模型
-ollama list
+curl -X POST "https://localhost:7000/api/search/similarity" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "人工智慧應用", "topK": 5}'
 ```
 
-### 效能調優
-
-- **記憶體配置**: 根據使用的模型調整記憶體設定
-- **並發處理**: 設定適當的並發請求數量
-- **快取策略**: 啟用回應快取以提升效能
-
-## 疑難排解
-
-### 常見問題
-
-1. **無法連接到 Ollama**
-   - 確認 Ollama 服務正在運行
-   - 檢查 `OLLAMA_HOST` 設定是否正確
-
-2. **模型載入失敗**
-   - 確認模型已正確安裝
-   - 檢查可用記憶體是否足夠
-
-3. **API 回應緩慢**
-   - 考慮使用較小的模型
-   - 調整 `max_tokens` 參數
-   - 檢查硬體資源使用情況
-
-### 日誌查看
+### 4. 文件問答
 
 ```bash
-# 查看應用程式日誌
-npm run logs
-
-# 查看 Ollama 日誌
-ollama logs
+curl -X POST "https://localhost:7000/api/chat/rag" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "文件中提到了哪些關於AI的內容？", "topK": 3}'
 ```
 
-## 開發指南
+## 進階配置與優化
 
-### 專案結構
+### 1. 替換向量數據庫
 
+可以將 `InMemoryVectorStore` 替換為專業的向量數據庫：
+
+- **Pinecone**: 雲端向量數據庫
+- **Weaviate**: 開源向量搜尋引擎
+- **Qdrant**: 高性能向量數據庫
+- **Chroma**: 輕量級向量數據庫
+
+### 2. 文本分割策略優化
+
+```csharp
+// 智能分割（按段落）
+private List<string> SmartSplitText(string text)
+{
+    var paragraphs = text.Split(new[] { "\n\n", "\r\n\r\n" }, 
+        StringSplitOptions.RemoveEmptyEntries);
+    
+    var chunks = new List<string>();
+    var currentChunk = "";
+    
+    foreach (var paragraph in paragraphs)
+    {
+        if (currentChunk.Length + paragraph.Length < 1000)
+        {
+            currentChunk += paragraph + "\n\n";
+        }
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(currentChunk))
+                chunks.Add(currentChunk.Trim());
+            currentChunk = paragraph + "\n\n";
+        }
+    }
+    
+    if (!string.IsNullOrWhiteSpace(currentChunk))
+        chunks.Add(currentChunk.Trim());
+    
+    return chunks;
+}
 ```
-ollama-report-webapi/
-├── src/
-│   ├── controllers/
-│   ├── middleware/
-│   ├── models/
-│   ├── routes/
-│   └── utils/
-├── tests/
-├── docs/
-├── config/
-└── scripts/
+
+### 3. 快取機制
+
+```csharp
+// 添加記憶體快取
+builder.Services.AddMemoryCache();
+
+// 在服務中使用快取
+public class CachedEmbeddingService : IEmbeddingService
+{
+    private readonly IEmbeddingService _baseService;
+    private readonly IMemoryCache _cache;
+    
+    public async Task<float[]> GenerateEmbeddingAsync(string text)
+    {
+        var cacheKey = $"embedding_{text.GetHashCode()}";
+        
+        if (_cache.TryGetValue(cacheKey, out float[]? cached))
+            return cached!;
+        
+        var embedding = await _baseService.GenerateEmbeddingAsync(text);
+        _cache.Set(cacheKey, embedding, TimeSpan.FromHours(24));
+        
+        return embedding;
+    }
+}
 ```
 
-### 測試
+### 4. 批次處理優化
 
-```bash
-# 運行所有測試
-npm test
-
-# 運行特定測試
-npm test -- --grep "報告生成"
-
-# 測試覆蓋率
-npm run test:coverage
+```csharp
+public async Task<List<float[]>> GenerateEmbeddingsBatchAsync(List<string> texts)
+{
+    const int batchSize = 10;
+    var embeddings = new List<float[]>();
+    
+    for (int i = 0; i < texts.Count; i += batchSize)
+    {
+        var batch = texts.Skip(i).Take(batchSize).ToList();
+        var batchTasks = batch.Select(GenerateEmbeddingAsync);
+        var batchResults = await Task.WhenAll(batchTasks);
+        embeddings.AddRange(batchResults);
+        
+        // 避免 API 限制
+        await Task.Delay(100);
+    }
+    
+    return embeddings;
+}
 ```
 
-### 建置和部署
+## 安全性考量
 
-```bash
-# 建置專案
-npm run build
+### 1. API 金鑰保護
 
-# Docker 部署
-docker build -t ollama-report-webapi .
-docker run -p 3000:3000 ollama-report-webapi
+```csharp
+// 使用 Azure Key Vault 或環境變數
+builder.Services.Configure<OpenAIOptions>(options =>
+{
+    options.ApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") 
+                     ?? builder.Configuration["OpenAI:ApiKey"];
+});
 ```
 
-## 貢獻指南
+### 2. 文件大小限制
 
-歡迎貢獻！請遵循以下步驟：
+```csharp
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = 52428800; // 50MB
+});
+```
 
-1. Fork 本專案
-2. 建立功能分支 (`git checkout -b feature/amazing-feature`)
-3. 提交變更 (`git commit -m 'Add some amazing feature'`)
-4. 推送到分支 (`git push origin feature/amazing-feature`)
-5. 開啟 Pull Request
+### 3. 輸入驗證
 
-## 授權條款
+```csharp
+public class DocumentUploadValidator
+{
+    private readonly string[] _allowedExtensions = { ".txt", ".md", ".docx", ".pdf" };
+    
+    public bool IsValidFile(IFormFile file)
+    {
+        var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+        return _allowedExtensions.Contains(extension) && file.Length > 0;
+    }
+}
+```
 
-本專案採用 MIT 授權條款。詳見 [LICENSE](LICENSE) 檔案。
+## 監控與日誌
 
-## 聯絡資訊
+### 1. 結構化日誌
 
-- **作者**: s05061343
-- **Email**: your-email@example.com
-- **GitHub**: [s05061343](https://github.com/s05061343)
+```csharp
+builder.Services.AddLogging(builder =>
+{
+    builder.AddConsole();
+    builder.AddApplicationInsights(); // 如果使用 Azure
+});
 
-## 更新日誌
+// 在服務中使用
+public class DocumentService
+{
+    private readonly ILogger<DocumentService> _logger;
+    
+    public async Task<DocumentUploadResult> ProcessDocumentAsync(IFormFile file)
+    {
+        _logger.LogInformation("開始處理文件: {FileName}, 大小: {FileSize}", 
+            file.FileName, file.Length);
+        
+        // 處理邏輯...
+        
+        _logger.LogInformation("文件處理完成: {DocumentId}, 塊數: {ChunkCount}", 
+            documentId, chunks.Count);
+    }
+}
+```
 
-### v1.0.0 (2025-06-06)
-- 初始版本發布
-- 基本報告生成功能
-- RESTful API 實作
-- Ollama 整合
+### 2. 效能監控
 
----
+```csharp
+public class PerformanceMiddleware
+{
+    public async Task InvokeAsync(HttpContext context, RequestDelegate next)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        
+        await next(context);
+        
+        stopwatch.Stop();
+        
+        if (stopwatch.ElapsedMilliseconds > 1000) // 超過1秒記錄
+        {
+            var logger = context.RequestServices.GetRequiredService<ILogger<PerformanceMiddleware>>();
+            logger.LogWarning("緩慢請求: {Path} 耗時 {ElapsedMilliseconds}ms", 
+                context.Request.Path, stopwatch.ElapsedMilliseconds);
+        }
+    }
+}
+```
 
-**注意**: 本文檔基於專案名稱推測生成。請根據實際專案內容進行調整。
+## 部署建議
+
+### 1. Docker 容器化
+
+```dockerfile
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
+WORKDIR /app
+EXPOSE 80
+EXPOSE 443
+
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+COPY ["SemanticKernelVectorAPI.csproj", "."]
+RUN dotnet restore
+COPY . .
+RUN dotnet build -c Release -o /app/build
+
+FROM build AS publish
+RUN dotnet publish -c Release -o /app/publish
+
+FROM base AS final
+WORKDIR /app
+COPY --from=publish /app/publish .
+ENTRYPOINT ["dotnet", "SemanticKernelVectorAPI.dll"]
+```
+
+### 2. 雲端部署選項
+
+- **Azure App Service**: 簡單的 PaaS 部署
+- **Azure Container Apps**: 容器化微服務
+- **AWS ECS/Fargate**: Amazon 容器服務
+- **Google Cloud Run**: 無伺服器容器平台
+
+## 常見問題與解決方案
+
+### Q1: 向量維度不匹配錯誤
+
+**解決方案**: 確保所有向量都使用相同的 embedding 模型
+
+```csharp
+// 驗證向量維度
+private void ValidateEmbeddingDimension(float[] embedding)
+{
+    const int expectedDimension = 1536; // text-embedding-ada-002
+    if (embedding.Length != expectedDimension)
+    {
+        throw new InvalidOperationException(
+            $"向量維度不匹配: 期望 {expectedDimension}, 實際 {embedding.Length}");
+    }
+}
+```
+
+### Q2: OpenAI API 配額限制
+
+**解決方案**: 實作重試機制和速率限制
+
+```csharp
+public class RateLimitedEmbeddingService : IEmbeddingService
+{
+    private readonly SemaphoreSlim _semaphore = new(5, 5); // 限制並發數
+    
+    public async Task<float[]> GenerateEmbeddingAsync(string text)
+    {
+        await _semaphore.WaitAsync();
+        try
+        {
+            return await _baseService.GenerateEmbeddingAsync(text);
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
+    }
+}
+```
+
+### Q3: 記憶體使用過高
+
+**解決方案**: 實作分頁和懶載入
+
+```csharp
+public async Task<PagedResult<DocumentChunk>> GetDocumentsPaged(int page, int pageSize)
+{
+    var skip = (page - 1) * pageSize;
+    var documents = _documents.Skip(skip).Take(pageSize).ToList();
+    
+    return new PagedResult<DocumentChunk>
+    {
+        Data = documents,
+        TotalCount = _documents.Count,
+        Page = page,
+        PageSize = pageSize
+    };
+}
+```
+
+## 結論
+
+這個 Semantic Kernel 文件向量化系統提供了完整的文件處理、向量生成和智能搜尋功能。通過模組化的設計，可以輕鬆擴展和客製化以滿足不同的業務需求。
+
+關鍵優勢：
+- 🚀 **高效能**: 批次處理和快取機制
+- 🔧 **可擴展**: 模組化架構易於擴展
+- 🛡️ **安全性**: 輸入驗證和 API 金鑰保護
+- 📊 **可監控**: 完整的日誌和效能監控
+- 🐳 **可部署**: 支援容器化和雲端部署
+
+開始使用這個系統來建構您的智能文件處理應用吧！

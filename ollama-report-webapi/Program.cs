@@ -50,9 +50,9 @@ builder.Services.AddSingleton<Kernel>(serviceProvider =>
 });
 
 // 註冊自定義服務
-builder.Services.AddScoped<IEmbeddingService, EmbeddingService>();
-builder.Services.AddScoped<IDocumentService, DocumentService>();
-builder.Services.AddScoped<IVectorStore, InMemoryVectorStore>();
+builder.Services.AddSingleton<IEmbeddingService, EmbeddingService>();
+builder.Services.AddSingleton<IDocumentService, DocumentService>();
+builder.Services.AddSingleton<IVectorStore, InMemoryVectorStore>();
 
 //啟用 Session 支援
 builder.Services.AddDistributedMemoryCache(); // 暫存
