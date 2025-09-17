@@ -1,10 +1,10 @@
 
 .vs/
 
-ollama-report-webapi/.config/
+.config/
 
-ollama-report-webapi/bin/
+bin/
 
-ollama-report-webapi/obj/
+obj/
 
-ollama-report-webapi/Properties/
+Properties/
